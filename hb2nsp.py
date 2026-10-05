@@ -345,6 +345,7 @@ def upstream_update(base, p, repo, t, slug, seen, broken):
     tag = rel["tag_name"]
     seen_as = f"{tag}@{rel['published_at']}"  # a rolling tag ("release", "nightly") moves its date
     if seen.get(name) in (tag, seen_as):
+        seen[name] = seen_as  # an entry from before dates were kept: from now on it has one
         return "same"
     published = int(datetime.datetime.fromisoformat(rel["published_at"].replace("Z", "+00:00")).timestamp())
     if name not in seen and published <= day(p.get("updated")) + 2 * 86400:
