@@ -343,11 +343,12 @@ def upstream_update(base, p, repo, t, slug, seen, broken):
     name = p["name"]
     rel = gh_api(f"repos/{slug}/releases/latest")
     tag = rel["tag_name"]
-    if seen.get(name) == tag:
+    seen_as = f"{tag}@{rel['published_at']}"  # a rolling tag ("release", "nightly") moves its date
+    if seen.get(name) in (tag, seen_as):
         return "same"
     published = int(datetime.datetime.fromisoformat(rel["published_at"].replace("Z", "+00:00")).timestamp())
     if name not in seen and published <= day(p.get("updated")) + 2 * 86400:
-        seen[name] = tag
+        seen[name] = seen_as
         return "same"
     if broken.get(name) == "gh:" + tag:
         return None
@@ -378,7 +379,7 @@ def upstream_update(base, p, repo, t, slug, seen, broken):
     json.dump(meta, open(os.path.join(OUT, f"{pid}.json"), "w"), indent=1)
     upload(base, pid)
     os.remove(os.path.join(OUT, f"{pid}.nsp"))
-    seen[name] = tag
+    seen[name] = seen_as
     return pid, rel
 
 
