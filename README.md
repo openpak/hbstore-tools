@@ -1,8 +1,9 @@
 # hbstore-tools
 
 How the OpenPak eShop gets its homebrew: every [hb-appstore](https://switch.cdn.fortheusers.org)
-(ForTheUsers) package with an NRO is wrapped as a no-rights-ID Switch title (`01fe…000`) and
-served by **nx-shop**; OpenPak itself ships the same way as `01fe000000000000`. Installing one
+(ForTheUsers) package with an NRO, plus homebrew found on GitHub, is wrapped as a no-rights-ID
+Switch title (`01fe…000`) and served by **nx-shop**. Updates come from each app's own GitHub
+releases wherever it publishes them (`sources.json`), 4TU only for the rest; OpenPak itself ships the same way as `01fe000000000000`. Installing one
 needs OpenPak's boot package (FS NCA-signature patch + Loader ACID gate for `0x01FE…`, built by
 openpak-nro's Enable).
 
@@ -29,18 +30,23 @@ awk -F' *= *' 'length($2)==32||length($2)==64||length($2)==128||length($2)==512|
 ```
 Also needs `hactool`, ImageMagick (`identify`, `magick`), Python 3 with `requests`.
 Working data goes to `$HBSTORE_DATA` (default `~/REPOS/Openpak/scratch/hbstore`):
-`out/uploaded.json` is the ledger of what is in the store.
+`out/uploaded.json` is the ledger of what is in the store; `out/repo.json` caches 4TU's index,
+so the store keeps working (upstream updates included) if 4TU goes away. GitHub API calls use
+`GITHUB_TOKEN` or `gh auth token`.
 
 ## Commands (`./run-hb.sh <command> …` against prod; the URL is appended)
 
 | Command | Does |
 | --- | --- |
-| `sync` | **daily**: add packages the store lacks, ship an update (one store version up) for any app 4TU dated after the store's `revised_at`, enrich what changed; packages that fail are skipped until 4TU changes them (`out/sync-broken.json`). `HBSTORE_DRY=1` only prints |
+| `sync` | **daily**: add packages the store lacks; for a package in `sources.json`, ship its upstream's newer latest GitHub release as an update (one store version up; 4TU's other files kept, release notes as the changelog; `out/upstream.json` holds the tag the store has); for the rest, an update when 4TU dates the package after the store's `revised_at`; enrich what changed; then the `github` titles. Packages that fail are skipped until their source changes (`out/sync-broken.json`). `HBSTORE_DRY=1` only prints |
+| `sources` | rewrite `sources.json` (committed): every 4TU package whose GitHub repo publishes releases. Rerun now and then to pick up new packages |
+| `discover [yyyy-mm-dd]` | search GitHub (topics, readmes) for repos whose latest release since that date (default 2022-01-01) carries a Switch NRO that neither 4TU nor the store has: `out/discover.json`, for review |
+| `adopt` | publish every entry left in `out/discover.json` as a `github` title |
 | `since <dd/mm/yyyy>` | build, upload and publish every package updated since then (skips what is in the store) |
 | `add <package>…` | the same for named packages, then `enrich` them |
 | `enrich` | category, full description, changelog, release/update dates, screenshots for every store title |
 | `rebuild [<package>…]` | rebuild bases with the current loader/icons and replace them |
-| `github <owner/repo> <tag> [category]` | a title from a GitHub release's `.nro` asset (id from `gh:<owner/repo>`), recorded in `out/github.json` so `sync` ships each new release as an update |
+| `github <owner/repo> <tag> [category]` | a title from a GitHub release's `.nro` asset or the NRO in its zip (id from `gh:<owner/repo>`, name from the NACP, the owner's avatar when the NRO has no icon), recorded in `out/github.json` so `sync` ships each new release as an update |
 | `openpak <tag>` / `openpak-update <tag>` | OpenPak from its GitHub release as the base / as an update (patch `01fe000000000800`) |
 | `loaderfix <na id>` | ship a rebuilt loader to every title an account owns, as updates one packaging revision up |
 | `build <package>…`, `upload <URL> <tid>…` | the two halves by hand (no tunnel: run `hb2nsp.py` directly) |
