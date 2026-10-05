@@ -1,0 +1,25 @@
+# nx-pctl: Switch parental controls, split from nx-baas (nx-baas docs/service-split.md).
+[Unit]
+Description=OpenPak nx-pctl (Switch parental controls, split from nx-baas)
+# Ordering only: no Requires= on nx-baas, so this keeps serving while the core restarts.
+After=openpak-nx-baas.service openpak-nx-penne.service
+
+[Container]
+ContainerName=openpak-nx-pctl
+Image=ghcr.io/openpak/nx-pctl:latest
+AutoUpdate=registry
+Network=openpak.network
+EnvironmentFile=%h/openpak/deploy/.env
+Environment=NX_CORE_URL=http://openpak-nx-baas:20070 NX_ADDR=:21000 NX_API_ADDR=:20070 NX_DATA=/app/data NX_CA_DIR=/ca
+Environment=BAAS_SIGNING_KEY=/keys/baas_signing_key.pem BAAS_KID=openpak-baas-key-1 NX_PCTL_IMPORT=/import/baas.json
+Volume=openpak-nx-pctl-data:/app/data
+# nx-baas's data, read once at start to import the state this service now owns.
+Volume=/home/ubuntu/.local/share/containers/storage/volumes/openpak-nxbaas/_data:/import:ro
+Volume=%h/openpak/deploy/ca:/ca:ro
+Volume=%h/openpak/deploy/keys/baas_signing_key.pem:/keys/baas_signing_key.pem:ro
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,14 @@
+__pycache__/
+# builds
+loader/build/
+loader/*.elf
+loader/*.nso
+loader/*.npdm
+loader/*.nsp
+hacBrewPack/*.o
+hacBrewPack/hacbrewpack
+hacBrewPack/config.mk
+# working data belongs in $HBSTORE_DATA, never here
+out/
+work/
+.tmp/
