@@ -41,6 +41,12 @@ UA = {"User-Agent": "openpak-hb2nsp"}
 # Not apps: Smash plugins (skyline), and hbmenu, which would overwrite the player's /hbmenu.nro.
 EXCLUDE = {"hdr-launcher", "UltimateTrainingModpack", "hbmenu"}
 SKIP_PREFIXES = ("atmosphere/", "bootloader/")
+# Store-side notes shown at the top of a title's description (kept through every enrich).
+NOTES = {
+    "ftpd": "Known issue: on firmware 22.5.0 ftpd shows an error when it quits (an ftpd bug; it "
+            "happens from the Homebrew Menu too). It works normally while running; close it from "
+            "HOME, or use ftpsrv.",
+}
 LANGS = ["AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish",
          "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Russian", "Korean",
          "TraditionalChinese", "SimplifiedChinese", "BrazilianPortuguese"]
@@ -84,6 +90,8 @@ def enrich(base, repo):
         if tid not in listed:
             continue
         about = text(p.get("details")) or text(p.get("description"))
+        if p["name"] in NOTES:
+            about = NOTES[p["name"]] + "\n\n" + about
         r = requests.patch(f"{base}/internal/store/titles/{tid}", headers=h, json={
             "category": category(p), "changelog": text(p.get("changelog")),
             "released_at": day(p.get("appCreated")), "revised_at": day(p.get("updated")),
@@ -601,7 +609,9 @@ if __name__ == "__main__":
     elif sys.argv[1] == "openpak":
         openpak(sys.argv[2], sys.argv[3].rstrip("/"))
     elif sys.argv[1] == "enrich":
-        enrich(sys.argv[2].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"])
+        repo = json.loads(get(f"{CDN}/repo.json"))["packages"]
+        only = set(sys.argv[2:-1])  # enrich [package…] <URL>: all titles, or just those
+        enrich(sys.argv[-1].rstrip("/"), [p for p in repo if not only or p["name"] in only])
     elif sys.argv[1] == "since":
         since(sys.argv[2], sys.argv[3].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"])
     elif sys.argv[1] == "build":
