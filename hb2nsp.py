@@ -494,6 +494,64 @@ def add(names, base, repo):
     enrich(base, [p for p in repo if p["name"] in names])
 
 
+def sync(base, repo):
+    """Keep the store in step with 4TU (run daily): a package the store lacks is added; one
+    4TU dated after the store's revised_at ships as an update one store version up (the high
+    16 bits; the low 16 stay the packaging revision), so installed copies update through
+    System Update. Each changed title is then enriched. One failure is logged, the run goes on."""
+    import requests
+    h = {"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]}
+    titles = {t["title_id"]: t for t in requests.get(f"{base}/internal/store/titles", headers=h).json()["titles"]}
+    done_path = os.path.join(OUT, "uploaded.json")
+    done = json.load(open(done_path)) if os.path.exists(done_path) else {}
+    # Packages that failed to build, by the 4TU date they failed at: retried only once 4TU
+    # publishes a newer one (a zip with no real NRO, a 404 zip), not every day.
+    broken_path = os.path.join(OUT, "sync-broken.json")
+    broken = json.load(open(broken_path)) if os.path.exists(broken_path) else {}
+    changed, failed = [], []
+    for p in repo:
+        name, tid = p["name"], title_id(p["name"])
+        if name in EXCLUDE or not p.get("binary", "").lower().endswith(".nro"):
+            continue
+        if broken.get(name) == p.get("updated"):
+            continue
+        t = titles.get(tid)
+        if os.environ.get("HBSTORE_DRY"):
+            if t is None or day(p.get("updated")) > (t.get("revised_at") or 0):
+                print(f"would {'add' if t is None else 'update'}: {name} (4TU {p.get('updated')}, store {t and t.get('revised_at')})")
+            continue
+        try:
+            if t is None:
+                print(f"new: {name}", flush=True)
+                build(name, repo)
+                upload(base, tid)
+                publish(base, tid)
+                done[tid] = json.load(open(os.path.join(OUT, f"{tid}.json")))["stamp"]
+            elif day(p.get("updated")) > (t.get("revised_at") or 0):
+                version = ((t.get("version", 0) >> 16) + 1) << 16
+                print(f"update: {name} -> {version} ({p.get('version')})", flush=True)
+                build(name, repo, version)
+                pid = tid[:-3] + "800"
+                upload(base, pid)
+                tid = pid
+            else:
+                continue
+            os.remove(os.path.join(OUT, f"{tid}.nsp"))
+            changed.append(p)
+        except (SystemExit, Exception) as e:
+            failed.append((name, str(e)[:200]))
+            broken[name] = p.get("updated")
+            print(f"  FAILED {name}: {str(e)[:200]}", flush=True)
+            shutil.rmtree(os.path.join(WORK, title_id(name)), ignore_errors=True)
+    json.dump(done, open(done_path, "w"), indent=1)
+    json.dump(broken, open(broken_path, "w"), indent=1)
+    if changed:
+        enrich(base, changed)
+    print(f"sync: {len(changed)} changed, {len(failed)} failed", flush=True)
+    for n, e in failed:
+        print(f"  {n}: {e}", flush=True)
+
+
 def since(date, base, repo):
     """Every wrappable package updated on or after date (dd/mm/yyyy): build, upload, publish.
     A package whose zip is unchanged since the last upload is skipped; one failure is logged
@@ -528,9 +586,11 @@ def since(date, base, repo):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "add", "loaderfix", "rebuild"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "add", "loaderfix", "rebuild", "sync"):
         raise SystemExit(__doc__)
-    if sys.argv[1] == "rebuild":
+    if sys.argv[1] == "sync":
+        sync(sys.argv[2].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"])
+    elif sys.argv[1] == "rebuild":
         rebuild(sys.argv[-1].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"], set(sys.argv[2:-1]))
     elif sys.argv[1] == "loaderfix":
         loaderfix(sys.argv[2], sys.argv[3].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"])

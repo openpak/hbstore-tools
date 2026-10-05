@@ -1,0 +1,9 @@
+[Unit]
+Description=OpenPak eShop: sync homebrew from hb-appstore (hbstore-tools sync)
+# Needs the OpenPak SSH agent (<ssh-agent-socket>) and ~/.switch/hbp.keys.
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/REPOS/Openpak/hbstore-tools
+ExecStart=/bin/sh -c './run-hb.sh sync >> "$${HBSTORE_DATA:-%h/REPOS/Openpak/scratch/hbstore}/sync.log" 2>&1'
+Nice=10

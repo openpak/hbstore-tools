@@ -35,6 +35,7 @@ Working data goes to `$HBSTORE_DATA` (default `~/REPOS/Openpak/scratch/hbstore`)
 
 | Command | Does |
 | --- | --- |
+| `sync` | **daily**: add packages the store lacks, ship an update (one store version up) for any app 4TU dated after the store's `revised_at`, enrich what changed; packages that fail are skipped until 4TU changes them (`out/sync-broken.json`). `HBSTORE_DRY=1` only prints |
 | `since <dd/mm/yyyy>` | build, upload and publish every package updated since then (skips what is in the store) |
 | `add <package>…` | the same for named packages, then `enrich` them |
 | `enrich` | category, full description, changelog, release/update dates, screenshots for every store title |
@@ -42,6 +43,12 @@ Working data goes to `$HBSTORE_DATA` (default `~/REPOS/Openpak/scratch/hbstore`)
 | `openpak <tag>` / `openpak-update <tag>` | OpenPak from its GitHub release as the base / as an update (patch `01fe000000000800`) |
 | `loaderfix <na id>` | ship a rebuilt loader to every title an account owns, as updates one packaging revision up |
 | `build <package>…`, `upload <URL> <tid>…` | the two halves by hand (no tunnel: run `hb2nsp.py` directly) |
+
+## Daily sync
+`deploy/workstation/hbstore-sync.{service,timer}` run `./run-hb.sh sync` at 05:30 as a systemd
+user timer on the workstation (it needs `~/.switch/hbp.keys` and the OpenPak SSH agent);
+output in `$HBSTORE_DATA/sync.log`. Install: copy both to `~/.config/systemd/user/`, then
+`systemctl --user enable --now hbstore-sync.timer`.
 
 ## Versions
 Store version = `(major*10000 + minor*100 + micro) << 16`; the low 16 bits are a packaging
