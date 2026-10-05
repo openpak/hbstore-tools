@@ -163,6 +163,99 @@ def openpak_build(tag, version=0):
     return rel, tid
 
 
+# ---------- titles from a GitHub release (not on 4TU) ----------
+# Recorded in $HBSTORE_DATA/out/github.json ({"owner/repo": {"tag", "category"}}) so `sync`
+# ships each new release as an update.
+
+def github_build(slug, tag, version=0, category="tool"):
+    """Package the .nro asset of release <tag> of github.com/<slug>; the title id is derived
+    from "gh:<slug>" so it never collides with a 4TU package. Returns (release, repo, id)."""
+    api = "https://api.github.com/repos/" + slug
+    repo_info, rel = json.loads(get(api)), json.loads(get(f"{api}/releases/tags/{tag}"))
+    asset = next((a for a in rel["assets"] if a["name"].lower().endswith(".nro")), None)
+    if asset is None:
+        raise SystemExit(f"{slug} {tag}: no .nro asset")
+    owner, name = slug.split("/")
+    binary = f"switch/{name}/{asset['name']}"
+    os.makedirs(WORK, exist_ok=True)
+    zpath = os.path.join(WORK, "github-pkg.zip")
+    with zipfile.ZipFile(zpath, "w") as z:
+        z.writestr(binary, get(asset["browser_download_url"]))
+    key = "gh:" + slug.lower()
+    pkg = {"name": key, "title": name, "author": owner,
+           "version": tag.lstrip("v"), "binary": "/" + binary, "category": category,
+           "url": repo_info["html_url"], "license": (repo_info.get("license") or {}).get("spdx_id") or "none published",
+           "description": repo_info.get("description") or ""}
+    real_get = get
+    def local_get(u, to=None):
+        if u.endswith(f"/zips/{key}.zip"):
+            shutil.copy(zpath, to)
+            return None
+        return real_get(u, to)
+    globals()["get"] = local_get
+    try:
+        tid = build(key, [pkg], version)
+    finally:
+        globals()["get"] = real_get
+        os.remove(zpath)
+    meta = json.load(open(os.path.join(OUT, f"{tid}.json")))
+    meta["title"]["localized"]["en-US"]["name"] = name
+    meta["title"]["distribution"] = {"source": rel["html_url"],
+                                     "permission": f"{pkg['license']}, from {slug} {tag}, OpenPak testing only"}
+    json.dump(meta, open(os.path.join(OUT, f"{tid}.json"), "w"), indent=1)
+    return rel, repo_info, tid
+
+
+def github_meta(base, tid, rel, repo_info, category):
+    """Store text for a GitHub title: description, changelog (release notes), dates."""
+    import requests
+    stamp = lambda v: int(datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp())
+    requests.patch(f"{base}/internal/store/titles/{tid[:-3]}000", headers={"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]},
+                   json={"changelog": (rel.get("body") or "").strip(), "category": category,
+                         "released_at": stamp(repo_info["created_at"]), "revised_at": stamp(rel["published_at"])})
+
+
+def github_add(slug, tag, base, category="tool"):
+    rel, repo_info, tid = github_build(slug, tag, 0, {"emulator": "emu"}.get(category, category))
+    upload(base, tid)
+    publish(base, tid)
+    github_meta(base, tid, rel, repo_info, category)
+    os.remove(os.path.join(OUT, f"{tid}.nsp"))
+    path = os.path.join(OUT, "github.json")
+    known = json.load(open(path)) if os.path.exists(path) else {}
+    known[slug] = {"tag": tag, "category": category}
+    json.dump(known, open(path, "w"), indent=1)
+    print(f"{tid}: {slug} {tag} published", flush=True)
+
+
+def github_sync(base):
+    """Ship every recorded GitHub title's newer latest release as an update."""
+    import requests
+    path = os.path.join(OUT, "github.json")
+    known = json.load(open(path)) if os.path.exists(path) else {}
+    h = {"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]}
+    for slug, rec in known.items():
+        try:
+            latest = json.loads(get(f"https://api.github.com/repos/{slug}/releases/latest"))["tag_name"]
+            if latest == rec["tag"]:
+                continue
+            tid = title_id("gh:" + slug.lower())
+            current = requests.get(f"{base}/internal/store/titles/{tid}", headers=h).json().get("version", 0)
+            version = ((current >> 16) + 1) << 16
+            if os.environ.get("HBSTORE_DRY"):
+                print(f"would update: {slug} {rec['tag']} -> {latest} ({version})")
+                continue
+            rel, repo_info, pid = github_build(slug, latest, version, {"emulator": "emu"}.get(rec["category"], rec["category"]))
+            upload(base, pid)
+            github_meta(base, pid, rel, repo_info, rec["category"])
+            os.remove(os.path.join(OUT, f"{pid}.nsp"))
+            rec["tag"] = latest
+            json.dump(known, open(path, "w"), indent=1)
+            print(f"update: {slug} -> {latest} ({version})", flush=True)
+        except (SystemExit, Exception) as e:
+            print(f"  FAILED {slug}: {str(e)[:200]}", flush=True)
+
+
 def openpak(tag, base):
     """OpenPak as a store title (the base, version 0), release notes as the changelog."""
     import requests
@@ -555,6 +648,7 @@ def sync(base, repo):
     json.dump(broken, open(broken_path, "w"), indent=1)
     if changed:
         enrich(base, changed)
+    github_sync(base)
     print(f"sync: {len(changed)} changed, {len(failed)} failed", flush=True)
     for n, e in failed:
         print(f"  {n}: {e}", flush=True)
@@ -594,9 +688,12 @@ def since(date, base, repo):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "add", "loaderfix", "rebuild", "sync"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "add", "loaderfix", "rebuild", "sync", "github"):
         raise SystemExit(__doc__)
-    if sys.argv[1] == "sync":
+    if sys.argv[1] == "github":  # github <owner/repo> <tag> [category] <URL>
+        a = sys.argv[2:-1]
+        github_add(a[0], a[1], sys.argv[-1].rstrip("/"), a[2] if len(a) > 2 else "tool")
+    elif sys.argv[1] == "sync":
         sync(sys.argv[2].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"])
     elif sys.argv[1] == "rebuild":
         rebuild(sys.argv[-1].rstrip("/"), json.loads(get(f"{CDN}/repo.json"))["packages"], set(sys.argv[2:-1]))

@@ -40,6 +40,7 @@ Working data goes to `$HBSTORE_DATA` (default `~/REPOS/Openpak/scratch/hbstore`)
 | `add <package>…` | the same for named packages, then `enrich` them |
 | `enrich` | category, full description, changelog, release/update dates, screenshots for every store title |
 | `rebuild [<package>…]` | rebuild bases with the current loader/icons and replace them |
+| `github <owner/repo> <tag> [category]` | a title from a GitHub release's `.nro` asset (id from `gh:<owner/repo>`), recorded in `out/github.json` so `sync` ships each new release as an update |
 | `openpak <tag>` / `openpak-update <tag>` | OpenPak from its GitHub release as the base / as an update (patch `01fe000000000800`) |
 | `loaderfix <na id>` | ship a rebuilt loader to every title an account owns, as updates one packaging revision up |
 | `build <package>…`, `upload <URL> <tid>…` | the two halves by hand (no tunnel: run `hb2nsp.py` directly) |
