@@ -24,7 +24,7 @@ the patch id. FS uses a patch romfs that has no indirect (BKTR) table on its own
 loader reads the new package straight from romfs:/. Store versions are
 (major*10000 + minor*100 + micro) << 16; a base is always 0. Needs hacBrewPack's HBP_PATCH.
 """
-import datetime, functools, hashlib, io, json, os, re, shutil, struct, subprocess, sys, time, urllib.parse, urllib.request, zipfile
+import datetime, functools, hashlib, io, json, os, re, shutil, struct, subprocess, sys, time, urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CDN = "https://switch.cdn.fortheusers.org"
@@ -69,7 +69,15 @@ def gh_token():
 
 def get(url, to=None):
     h = dict(UA, Authorization="Bearer " + gh_token()) if url.startswith("https://api.github.com/") and gh_token() else UA
-    with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=600) as r:
+    for wait in (30, 90, 240, 0):  # GitHub's secondary rate limit: back off, then give up
+        try:
+            r = urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=600)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code not in (403, 429) or not wait:
+                raise
+            time.sleep(wait)
+    with r:
         if to is None:
             return r.read()
         with open(to, "wb") as f:
