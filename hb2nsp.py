@@ -520,7 +520,9 @@ def openpak_update(tag, base=None):
     upload alone makes the version list advertise it. With no base URL: build, check, and print
     the requests; out/01fe000000000800.nsp stays for a later `upload`."""
     rel, pid = openpak_build(tag, store_version(tag))
-    changelog = {"changelog": (rel.get("body") or "").strip()}
+    changelog = {"changelog": (rel.get("body") or "").strip(),
+                 "distribution": {"source": "https://github.com/openpak/openpak-nro/releases/tag/" + tag,
+                                  "permission": "OpenPak's own software"}}
     if base is None:
         upload("<URL>", pid, dry=True)
         print(f"PATCH <URL>/internal/store/titles/{OPENPAK_TID}  {json.dumps(changelog)[:200]}")
