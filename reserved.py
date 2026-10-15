@@ -34,6 +34,8 @@ PLATFORMS = [
     ("azahar", "Azahar", "#d9602b"), ("melonds", "melonDS", "#b5651d"), ("xemu", "xemu", "#3c8d2f"),
     ("xenia", "Xenia", "#3a7d44"), ("pcsx2", "PCSX2", "#1e3a8a"), ("rpcs3", "RPCS3", "#1e5fa8"),
     ("ppsspp", "PPSSPP", "#444b5a"), ("vita3k", "Vita3K", "#0b6fb8"),
+    ("ps4", "PS4", "#003087"), ("ps5", "PS5", "#0a0a0a"), ("psp", "PSP", "#1a7fd4"),
+    ("vita", "PS Vita", "#0b3d91"), ("xbox", "Xbox", "#5cb800"), ("xboxone", "Xbox One", "#107c10"),
 ]
 
 
