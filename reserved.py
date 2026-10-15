@@ -12,7 +12,7 @@ in no storefront, update list or library.
 
 Pictures: icons/<key>.png (or .jpg) next to this file is used when present, resized to 256x256;
 otherwise a name tile is drawn. <out> is $HBSTORE_DATA/reserved (default scratch/hbstore/reserved).
-The ids are 01fe00ff<index>000: inside the application range, in the 01fe tag the OpenPak boot
+The ids are 01fe00f<generation><index>000: inside the application range, in the 01fe tag the OpenPak boot
 package already lets through, and clear of the store's own ids (01fe + a hash).
 """
 import hashlib, os, shutil, struct, subprocess, sys
@@ -37,8 +37,13 @@ PLATFORMS = [
 ]
 
 
+# The id carries a generation: a console keeps the control data of every id it has fetched and never
+# asks again, so a changed name or picture needs a new id. 01fe00ff was the first; 01fe00fe the second.
+GENERATION = "01fe00fe"
+
+
 def title_id(index):
-    return f"01fe00ff{index + 1:05x}000"
+    return f"{GENERATION}{index + 1:05x}000"
 
 
 def icon_for(key, name, colour, tmp):
