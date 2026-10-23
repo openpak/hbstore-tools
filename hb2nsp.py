@@ -8,6 +8,7 @@
     hb2nsp.py openpak <tag> <URL>       publish OpenPak itself (openpak.nro from that GitHub release) as 01fe000000000000
     hb2nsp.py openpak-update <tag> [URL]  OpenPak <tag> as the update 01fe000000000800; without URL, build,
                                         check and print the upload instead of sending it
+    hb2nsp.py openpak-nsp <tag>         OpenPak <tag> as an installable base NSP, attached to its GitHub release
     hb2nsp.py enrich <URL>              category, full description, changelog and screenshots for every store title
 
 The NSP is no-rights-ID (key-area crypto). Its program is ./loader (nx-hbloader that copies
@@ -533,6 +534,25 @@ def openpak_update(tag, base=None):
                    headers={"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]}, json=changelog)
     os.remove(os.path.join(OUT, f"{pid}.nsp"))
     print(f"{pid}: OpenPak {tag} uploaded as the update", flush=True)
+    try:
+        openpak_nsp(tag)
+    except Exception as e:  # the store update is already out; the GitHub NSP can be retried with `openpak-nsp`
+        print(f"WARNING: no GitHub NSP for {tag}: {e}", flush=True)
+
+
+def openpak_nsp(tag):
+    """OpenPak <tag> as a base NSP (version 0, the same title the eShop installs, so eShop updates
+    apply on top) attached to the GitHub release as OpenPak-<tag>.nsp, for installing by any
+    means. Built here, not in CI: packaging needs the Nintendo keys, which must not sit in a public
+    repository's runners."""
+    _, pid = openpak_build(tag, 0)
+    out = os.path.join(OUT, f"OpenPak-{tag}.nsp")
+    shutil.move(os.path.join(OUT, f"{pid}.nsp"), out)
+    try:
+        subprocess.run(["gh", "release", "upload", tag, out, "--clobber", "--repo", "openpak/openpak-nro"], check=True)
+    finally:
+        os.remove(out)
+    print(f"OpenPak-{tag}.nsp attached to the {tag} release", flush=True)
 
 
 def loaderfix(na_id, base, repo):
@@ -960,7 +980,7 @@ def since(date, base, repo):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "add", "loaderfix", "rebuild", "sync", "github",
+    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "openpak-nsp", "add", "loaderfix", "rebuild", "sync", "github",
                                                      "sources", "discover", "adopt", "github-sync"):
         raise SystemExit(__doc__)
     if sys.argv[1] == "github" and len(sys.argv) == 7:  # github <owner/repo> <tag> <category> <path in zip> <URL>
@@ -984,6 +1004,8 @@ if __name__ == "__main__":
         loaderfix(sys.argv[2], sys.argv[3].rstrip("/"), load_repo())
     elif sys.argv[1] == "openpak-update":
         openpak_update(sys.argv[2], sys.argv[3].rstrip("/") if len(sys.argv) > 3 else None)
+    elif sys.argv[1] == "openpak-nsp":
+        openpak_nsp(sys.argv[2])
     elif sys.argv[1] == "add":
         add(sys.argv[2:-1], sys.argv[-1].rstrip("/"), load_repo())
     elif sys.argv[1] == "openpak":

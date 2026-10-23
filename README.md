@@ -48,6 +48,7 @@ so the store keeps working (upstream updates included) if 4TU goes away. GitHub 
 | `rebuild [<package>…]` | rebuild bases with the current loader/icons and replace them |
 | `github <owner/repo> <tag> [category]` | a title from a GitHub release's `.nro` asset or the NRO in its zip (id from `gh:<owner/repo>`, name from the NACP, the owner's avatar when the NRO has no icon), recorded in `out/github.json` so `sync` ships each new release as an update |
 | `openpak <tag>` / `openpak-update <tag>` | OpenPak from its GitHub release as the base / as an update (patch `01fe000000000800`) |
+| `openpak-nsp <tag>` | OpenPak's base NSP (same title as the eShop's, so eShop updates apply) built from that release and attached to it on GitHub as `OpenPak-<tag>.nsp`; `openpak-update` runs it too. Built on the workstation because packaging needs the Nintendo keys, which stay out of CI |
 | `loaderfix <na id>` | ship a rebuilt loader to every title an account owns, as updates one packaging revision up |
 | `build <package>…`, `upload <URL> <tid>…` | the two halves by hand (no tunnel: run `hb2nsp.py` directly) |
 
