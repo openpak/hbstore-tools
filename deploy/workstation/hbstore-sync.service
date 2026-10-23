@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenPak eShop: sync homebrew from hb-appstore (hbstore-tools sync)
-# Needs the OpenPak SSH agent (<ssh-agent-socket>) and ~/.switch/hbp.keys.
+# Needs the production SSH target and agent (run-hb.sh reads them from a private env file) and ~/.switch/hbp.keys.
 
 [Service]
 Type=oneshot
