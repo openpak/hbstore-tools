@@ -47,8 +47,9 @@ so the store keeps working (upstream updates included) if 4TU goes away. GitHub 
 | `enrich` | category, full description, changelog, release/update dates, screenshots for every store title |
 | `rebuild [<package>…]` | rebuild bases with the current loader/icons and replace them |
 | `github <owner/repo> <tag> [category]` | a title from a GitHub release's `.nro` asset or the NRO in its zip (id from `gh:<owner/repo>`, name from the NACP, the owner's avatar when the NRO has no icon), recorded in `out/github.json` so `sync` ships each new release as an update |
-| `openpak <tag>` / `openpak-update <tag>` | OpenPak from its GitHub release as the base / as an update (patch `01fe000000000800`) |
-| `openpak-nsp <tag>` | OpenPak's base NSP (same title as the eShop's, so eShop updates apply) built from that release and attached to it on GitHub as `OpenPak-<tag>.nsp`; `openpak-update` runs it too. Built on the workstation because packaging needs the Nintendo keys, which stay out of CI |
+| `openpak <tag>` / `openpak-update <tag>` | OpenPak Switch Patcher (`openpak/switch-patcher`) release `<tag>` as the base / as an update (patch `01fe000000000800`; also renames the listing). The program is the release run's artifact `switch-patcher-nro` (CI's build with the verified network bundle; releases carry no `.nro`), fetched with `gh` |
+| `openpak-nsp <tag>` | Switch Patcher's base NSP (same title as the eShop's, so eShop updates apply) built from that artifact and attached to the release as `OpenPak-Switch-Patcher-<tag>.nsp`; `openpak-update` runs it too. Built on the workstation because packaging needs the console keys, which stay out of CI |
+| `openpak-nsp-file <nro> <out.nsp>` | a local Switch Patcher build as that base NSP, nothing uploaded (`make nsp` in switch-patcher; run `hb2nsp.py` directly, no tunnel) |
 | `loaderfix <na id>` | ship a rebuilt loader to every title an account owns, as updates one packaging revision up |
 | `build <package>…`, `upload <URL> <tid>…` | the two halves by hand (no tunnel: run `hb2nsp.py` directly) |
 

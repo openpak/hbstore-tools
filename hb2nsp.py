@@ -5,10 +5,11 @@
     hb2nsp.py upload <URL> <tid>...     send out/<tid>.* to nx-baas's store admin API (key: NX_INTERNAL_KEY)
     hb2nsp.py since <dd/mm/yyyy> <URL>  build, upload and publish every package updated since then
     hb2nsp.py add <package>... <URL>    build, upload, publish and enrich those packages now
-    hb2nsp.py openpak <tag> <URL>       publish OpenPak itself (openpak.nro from that GitHub release) as 01fe000000000000
-    hb2nsp.py openpak-update <tag> [URL]  OpenPak <tag> as the update 01fe000000000800; without URL, build,
+    hb2nsp.py openpak <tag> <URL>       publish OpenPak Switch Patcher (the <tag> release build) as 01fe000000000000
+    hb2nsp.py openpak-update <tag> [URL]  Switch Patcher <tag> as the update 01fe000000000800; without URL, build,
                                         check and print the upload instead of sending it
-    hb2nsp.py openpak-nsp <tag>         OpenPak <tag> as an installable base NSP, attached to its GitHub release
+    hb2nsp.py openpak-nsp <tag>         Switch Patcher <tag> as an installable base NSP, attached to its GitHub release
+    hb2nsp.py openpak-nsp-file <nro> <out.nsp>  a local Switch Patcher build as that base NSP (no upload)
     hb2nsp.py enrich <URL>              category, full description, changelog and screenshots for every store title
 
 The NSP is no-rights-ID (key-area crypto). Its program is ./loader (nx-hbloader that copies
@@ -139,7 +140,13 @@ def enrich(base, repo):
         print(tid, p["name"], category(p), r.status_code, f"{shots} screenshot(s)", flush=True)
 
 
-OPENPAK_TID = "01fe000000000000"  # reserved: OpenPak itself (hash ids never land on it in practice)
+OPENPAK_TID = "01fe000000000000"  # reserved: OpenPak Switch Patcher (hash ids never land on it in practice)
+OPENPAK_REPO = "openpak/switch-patcher"
+OPENPAK_NAME = "OpenPak Switch Patcher"
+OPENPAK_DESCRIPTION = "Connects this console to OpenPak: online play, the eShop, news and system support."
+# The release workflow's artifact: the tag's program, built in CI with the registry-verified
+# network bundle (which a workstation build cannot certify). Releases carry no .nro.
+OPENPAK_ARTIFACT = "switch-patcher-nro"
 
 
 def store_version(tag):
@@ -153,22 +160,43 @@ def store_version(tag):
     return (major * 10000 + minor * 100 + micro) << 16
 
 
-def openpak_build(tag, version=0):
-    """OpenPak's package for the GitHub release <tag>: openpak.nro installed (hidden from hbmenu) at
-    /switch/.openpak/openpak.nro (self-update rewrites that same file, and the loader only
-    recopies when the store's package changes). The base, or with a version, its update.
-    Returns the release and the package id (out/<id>.*)."""
-    rel = json.loads(get(f"https://api.github.com/repos/openpak/switch-patcher/releases/tags/{tag}"))
-    url = next(a["browser_download_url"] for a in rel["assets"] if a["name"] == "openpak.nro")
-    nro = get(url)
+def openpak_release_nro(tag):
+    """The program the release workflow built for <tag> (its OPENPAK_ARTIFACT), checked to report
+    that version. Needs `gh` signed in; the artifact lives 90 days (rerun the workflow on the tag
+    after that)."""
+    run = subprocess.run(["gh", "run", "list", "--repo", OPENPAK_REPO, "--workflow", "release.yml", "--branch", tag,
+                          "--status", "success", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    if not run:
+        raise SystemExit(f"{tag}: no successful release run in {OPENPAK_REPO}")
+    d = os.path.join(WORK, "switch-patcher-artifact")
+    shutil.rmtree(d, ignore_errors=True)
+    subprocess.run(["gh", "run", "download", run, "--repo", OPENPAK_REPO, "--name", OPENPAK_ARTIFACT, "--dir", d], check=True)
+    nro = open(os.path.join(d, "switch-patcher.nro"), "rb").read()
+    shutil.rmtree(d)
+    label = nro_assets(nro, {})[1][0x3060:0x3070].split(b"\0")[0].decode()
+    if label != tag.lstrip("v"):
+        raise SystemExit(f"{tag}: the run's build reports version {label!r}")
+    return nro
+
+
+def openpak_build(tag, version=0, nro=None):
+    """Switch Patcher's package for release <tag> (or the given NRO bytes): installed, hidden
+    from hbmenu, at /switch/.openpak/openpak.nro (the path every installed copy already uses;
+    the loader only recopies when the store's package changes). The base, or with a version,
+    its update. Returns the release (None for a local NRO) and the package id (out/<id>.*)."""
+    rel = None
+    if nro is None:
+        rel = json.loads(get(f"https://api.github.com/repos/{OPENPAK_REPO}/releases/tags/{tag}"))
+        nro = openpak_release_nro(tag)
     os.makedirs(WORK, exist_ok=True)
     zpath = os.path.join(WORK, "openpak-pkg.zip")
     with zipfile.ZipFile(zpath, "w") as z:
         z.writestr("switch/.openpak/openpak.nro", nro)
-    pkg = {"name": "OpenPak", "title": "OpenPak", "author": "OpenPak", "version": tag.lstrip("v"),
+    pkg = {"name": "OpenPak", "title": OPENPAK_NAME, "author": "OpenPak", "version": tag.lstrip("v"),
            "binary": "/switch/.openpak/openpak.nro", "category": "tool",
-           "url": "https://github.com/openpak/switch-patcher", "license": "OpenPak",
-           "description": "Connects this console to OpenPak: online play, the eShop, news and system support."}
+           "url": f"https://github.com/{OPENPAK_REPO}", "license": "OpenPak",
+           "description": OPENPAK_DESCRIPTION}
     real_get, real_tid = get, title_id
     def local_get(u, to=None):
         if u.endswith("/zips/OpenPak.zip"):
@@ -182,7 +210,7 @@ def openpak_build(tag, version=0):
         globals()["get"], globals()["title_id"] = real_get, real_tid
         os.remove(zpath)
     meta = json.load(open(os.path.join(OUT, f"{tid}.json")))
-    meta["title"]["distribution"] = {"source": "https://github.com/openpak/switch-patcher/releases/tag/" + tag,
+    meta["title"]["distribution"] = {"source": f"https://github.com/{OPENPAK_REPO}/releases/tag/{tag}",
                                      "permission": "OpenPak's own software"}
     json.dump(meta, open(os.path.join(OUT, f"{tid}.json"), "w"), indent=1)
     return rel, tid
@@ -521,8 +549,10 @@ def openpak_update(tag, base=None):
     upload alone makes the version list advertise it. With no base URL: build, check, and print
     the requests; out/01fe000000000800.nsp stays for a later `upload`."""
     rel, pid = openpak_build(tag, store_version(tag))
+    # The name goes with every update too: the listing created as "OpenPak" follows the rename.
     changelog = {"changelog": (rel.get("body") or "").strip(),
-                 "distribution": {"source": "https://github.com/openpak/switch-patcher/releases/tag/" + tag,
+                 "localized": {"en-US": {"name": OPENPAK_NAME, "description": OPENPAK_DESCRIPTION}},
+                 "distribution": {"source": f"https://github.com/{OPENPAK_REPO}/releases/tag/{tag}",
                                   "permission": "OpenPak's own software"}}
     if base is None:
         upload("<URL>", pid, dry=True)
@@ -533,7 +563,7 @@ def openpak_update(tag, base=None):
     requests.patch(f"{base}/internal/store/titles/{OPENPAK_TID}",
                    headers={"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]}, json=changelog)
     os.remove(os.path.join(OUT, f"{pid}.nsp"))
-    print(f"{pid}: OpenPak {tag} uploaded as the update", flush=True)
+    print(f"{pid}: Switch Patcher {tag} uploaded as the update", flush=True)
     try:
         openpak_nsp(tag)
     except Exception as e:  # the store update is already out; the GitHub NSP can be retried with `openpak-nsp`
@@ -541,18 +571,31 @@ def openpak_update(tag, base=None):
 
 
 def openpak_nsp(tag):
-    """OpenPak <tag> as a base NSP (version 0, the same title the eShop installs, so eShop updates
-    apply on top) attached to the GitHub release as OpenPak-<tag>.nsp, for installing by any
-    means. Built here, not in CI: packaging needs the Nintendo keys, which must not sit in a public
-    repository's runners."""
+    """Switch Patcher <tag> as a base NSP (version 0, the same title the eShop installs, so eShop
+    updates apply on top) attached to the GitHub release as OpenPak-Switch-Patcher-<tag>.nsp: the
+    first install. Built here, not in CI: packaging needs the console keys, which must not sit in a
+    public repository's runners."""
     _, pid = openpak_build(tag, 0)
-    out = os.path.join(OUT, f"OpenPak-{tag}.nsp")
+    out = os.path.join(OUT, f"OpenPak-Switch-Patcher-{tag}.nsp")
     shutil.move(os.path.join(OUT, f"{pid}.nsp"), out)
     try:
-        subprocess.run(["gh", "release", "upload", tag, out, "--clobber", "--repo", "openpak/switch-patcher"], check=True)
+        subprocess.run(["gh", "release", "upload", tag, out, "--clobber", "--repo", OPENPAK_REPO], check=True)
     finally:
         os.remove(out)
-    print(f"OpenPak-{tag}.nsp attached to the {tag} release", flush=True)
+    print(f"OpenPak-Switch-Patcher-{tag}.nsp attached to the {tag} release", flush=True)
+
+
+def openpak_nsp_file(nro_path, out):
+    """A local Switch Patcher build as the base NSP, written to <out> and nothing uploaded: for
+    development and for checking the packaging (the release NSP wraps the CI build instead)."""
+    nro = open(nro_path, "rb").read()
+    label = nro_assets(nro, {})[1][0x3060:0x3070].split(b"\0")[0].decode() or "dev"
+    _, pid = openpak_build(label, 0, nro=nro)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    shutil.move(os.path.join(OUT, f"{pid}.nsp"), out)
+    for ext in (".json", ".jpg"):
+        os.remove(os.path.join(OUT, pid + ext))
+    print(f"{out}: {OPENPAK_NAME} {label}", flush=True)
 
 
 def loaderfix(na_id, base, repo):
@@ -571,7 +614,7 @@ def loaderfix(na_id, base, repo):
         t = t.json()
         current = max((t.get("application") or {}).get("version", 0), (t.get("update") or {}).get("version", 0))
         if tid == OPENPAK_TID:
-            rel = json.loads(get("https://api.github.com/repos/openpak/switch-patcher/releases/latest"))
+            rel = json.loads(get(f"https://api.github.com/repos/{OPENPAK_REPO}/releases/latest"))
             _, pid = openpak_build(rel["tag_name"], max(current, store_version(rel["tag_name"])) + 1)
         elif tid in names:
             build(names[tid], repo, current + 1)
@@ -980,7 +1023,7 @@ def since(date, base, repo):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "openpak-nsp", "add", "loaderfix", "rebuild", "sync", "github",
+    if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "openpak-nsp", "openpak-nsp-file", "add", "loaderfix", "rebuild", "sync", "github",
                                                      "sources", "discover", "adopt", "github-sync"):
         raise SystemExit(__doc__)
     if sys.argv[1] == "github" and len(sys.argv) == 7:  # github <owner/repo> <tag> <category> <path in zip> <URL>
@@ -1006,6 +1049,8 @@ if __name__ == "__main__":
         openpak_update(sys.argv[2], sys.argv[3].rstrip("/") if len(sys.argv) > 3 else None)
     elif sys.argv[1] == "openpak-nsp":
         openpak_nsp(sys.argv[2])
+    elif sys.argv[1] == "openpak-nsp-file":
+        openpak_nsp_file(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "add":
         add(sys.argv[2:-1], sys.argv[-1].rstrip("/"), load_repo())
     elif sys.argv[1] == "openpak":
