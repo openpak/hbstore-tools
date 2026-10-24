@@ -158,7 +158,7 @@ def openpak_build(tag, version=0):
     /switch/.openpak/openpak.nro (self-update rewrites that same file, and the loader only
     recopies when the store's package changes). The base, or with a version, its update.
     Returns the release and the package id (out/<id>.*)."""
-    rel = json.loads(get(f"https://api.github.com/repos/openpak/openpak-nro/releases/tags/{tag}"))
+    rel = json.loads(get(f"https://api.github.com/repos/openpak/switch-patcher/releases/tags/{tag}"))
     url = next(a["browser_download_url"] for a in rel["assets"] if a["name"] == "openpak.nro")
     nro = get(url)
     os.makedirs(WORK, exist_ok=True)
@@ -167,7 +167,7 @@ def openpak_build(tag, version=0):
         z.writestr("switch/.openpak/openpak.nro", nro)
     pkg = {"name": "OpenPak", "title": "OpenPak", "author": "OpenPak", "version": tag.lstrip("v"),
            "binary": "/switch/.openpak/openpak.nro", "category": "tool",
-           "url": "https://github.com/openpak/openpak-nro", "license": "OpenPak",
+           "url": "https://github.com/openpak/switch-patcher", "license": "OpenPak",
            "description": "Connects this console to OpenPak: online play, the eShop, news and system support."}
     real_get, real_tid = get, title_id
     def local_get(u, to=None):
@@ -182,7 +182,7 @@ def openpak_build(tag, version=0):
         globals()["get"], globals()["title_id"] = real_get, real_tid
         os.remove(zpath)
     meta = json.load(open(os.path.join(OUT, f"{tid}.json")))
-    meta["title"]["distribution"] = {"source": "https://github.com/openpak/openpak-nro/releases/tag/" + tag,
+    meta["title"]["distribution"] = {"source": "https://github.com/openpak/switch-patcher/releases/tag/" + tag,
                                      "permission": "OpenPak's own software"}
     json.dump(meta, open(os.path.join(OUT, f"{tid}.json"), "w"), indent=1)
     return rel, tid
@@ -522,7 +522,7 @@ def openpak_update(tag, base=None):
     the requests; out/01fe000000000800.nsp stays for a later `upload`."""
     rel, pid = openpak_build(tag, store_version(tag))
     changelog = {"changelog": (rel.get("body") or "").strip(),
-                 "distribution": {"source": "https://github.com/openpak/openpak-nro/releases/tag/" + tag,
+                 "distribution": {"source": "https://github.com/openpak/switch-patcher/releases/tag/" + tag,
                                   "permission": "OpenPak's own software"}}
     if base is None:
         upload("<URL>", pid, dry=True)
@@ -549,7 +549,7 @@ def openpak_nsp(tag):
     out = os.path.join(OUT, f"OpenPak-{tag}.nsp")
     shutil.move(os.path.join(OUT, f"{pid}.nsp"), out)
     try:
-        subprocess.run(["gh", "release", "upload", tag, out, "--clobber", "--repo", "openpak/openpak-nro"], check=True)
+        subprocess.run(["gh", "release", "upload", tag, out, "--clobber", "--repo", "openpak/switch-patcher"], check=True)
     finally:
         os.remove(out)
     print(f"OpenPak-{tag}.nsp attached to the {tag} release", flush=True)
@@ -571,7 +571,7 @@ def loaderfix(na_id, base, repo):
         t = t.json()
         current = max((t.get("application") or {}).get("version", 0), (t.get("update") or {}).get("version", 0))
         if tid == OPENPAK_TID:
-            rel = json.loads(get("https://api.github.com/repos/openpak/openpak-nro/releases/latest"))
+            rel = json.loads(get("https://api.github.com/repos/openpak/switch-patcher/releases/latest"))
             _, pid = openpak_build(rel["tag_name"], max(current, store_version(rel["tag_name"])) + 1)
         elif tid in names:
             build(names[tid], repo, current + 1)
