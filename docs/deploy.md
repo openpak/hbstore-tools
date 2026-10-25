@@ -1,0 +1,42 @@
+# Deploy: hbstore-tools
+
+## Setup
+
+```sh
+pacman -S switch-dev devkitARM switch-libjpeg-turbo      # devkitPro repos, see pkg.devkitpro.org
+make -C loader                                            # -> loader/hbl.nso, hbl.npdm
+cp hacBrewPack/config.mk.template hacBrewPack/config.mk && make -C hacBrewPack
+# keys: hacbrewpack and hactool reject the 34-digit lines of a recent prod.keys
+awk -F' *= *' 'length($2)==32||length($2)==64||length($2)==128||length($2)==512||length($2)==1024' \
+    ~/.switch/prod.keys > ~/.switch/hbp.keys && chmod 600 ~/.switch/hbp.keys
+```
+Also needs `hactool`, ImageMagick (`identify`, `magick`), Python 3 with `requests`.
+Working data goes to `$HBSTORE_DATA` (default `private notes`):
+`out/uploaded.json` is the ledger of what is in the store; `out/repo.json` caches 4TU's index,
+so the store keeps working (upstream updates included) if 4TU goes away. GitHub API calls use
+`GITHUB_TOKEN` or `gh auth token`.
+
+## Commands (`./run-hb.sh <command> …` against prod; the URL is appended)
+
+| Command | Does |
+| --- | --- |
+| `sync` | **daily**: add packages the store lacks; for a package in `sources.json`, ship its upstream's newer latest GitHub release as an update (one store version up; 4TU's other files kept, release notes as the changelog; `out/upstream.json` holds the tag the store has); for the rest, an update when 4TU dates the package after the store's `revised_at`; enrich what changed; then the `github` titles. Packages that fail are skipped until their source changes (`out/sync-broken.json`). `HBSTORE_DRY=1` only prints |
+| `sources` | rewrite `sources.json` (committed): every 4TU package whose GitHub repo publishes releases. Rerun now and then to pick up new packages |
+| `discover [yyyy-mm-dd]` | search GitHub (topics, readmes) for repos whose latest release since that date (default 2022-01-01) carries a Switch NRO that neither 4TU nor the store has: `out/discover.json`, for review |
+| `adopt` | publish every entry left in `out/discover.json` as a `github` title |
+| `since <dd/mm/yyyy>` | build, upload and publish every package updated since then (skips what is in the store) |
+| `add <package>…` | the same for named packages, then `enrich` them |
+| `enrich` | category, full description, changelog, release/update dates, screenshots for every store title |
+| `rebuild [<package>…]` | rebuild bases with the current loader/icons and replace them |
+| `github <owner/repo> <tag> [category]` | a title from a GitHub release's `.nro` asset or the NRO in its zip (id from `gh:<owner/repo>`, name from the NACP, the owner's avatar when the NRO has no icon), recorded in `out/github.json` so `sync` ships each new release as an update |
+| `openpak <tag>` / `openpak-update <tag>` | OpenPak Switch Patcher (`openpak/switch-patcher`) release `<tag>` as the base / as an update (patch `01fe000000000800`; also renames the listing). The program is the release run's artifact `switch-patcher-nro` (CI's build with the verified network bundle; releases carry no `.nro`), fetched with `gh` |
+| `openpak-nsp <tag>` | Switch Patcher's base NSP (same title as the eShop's, so eShop updates apply) built from that artifact and attached to the release as `OpenPak-Switch-Patcher-<tag>.nsp`; `openpak-update` runs it too. Built on the workstation because packaging needs the console keys, which stay out of CI |
+| `openpak-nsp-file <nro> <out.nsp>` | a local Switch Patcher build as that base NSP, nothing uploaded (`make nsp` in switch-patcher; run `hb2nsp.py` directly, no tunnel) |
+| `loaderfix <na id>` | ship a rebuilt loader to every title an account owns, as updates one packaging revision up |
+| `build <package>…`, `upload <URL> <tid>…` | the two halves by hand (no tunnel: run `hb2nsp.py` directly) |
+
+## Daily sync
+`deploy/workstation/hbstore-sync.{service,timer}` run `./run-hb.sh sync` at 05:30 as a systemd
+user timer on the workstation (it needs `~/.switch/hbp.keys` and the OpenPak SSH agent);
+output in `$HBSTORE_DATA/sync.log`. Install: copy both to `~/.config/systemd/user/`, then
+`systemctl --user enable --now hbstore-sync.timer`.
