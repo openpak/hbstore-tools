@@ -297,20 +297,26 @@ def github_build(slug, tag, version=0, category="tool", binary=None, only=False)
     return rel, repo_info, tid, binary
 
 
-def github_meta(base, tid, rel, repo_info, category):
-    """Store text for a GitHub title: description, changelog (release notes), dates."""
+def github_meta(base, tid, slug, rel, repo_info, category):
+    """Store text for a GitHub title: description, changelog (release notes), dates, and the
+    release this version came from. distribution is refreshed on every ship: the title create
+    carries it only for new titles, so without this updates leave a stale source behind."""
     import requests
     stamp = lambda v: int(datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp())
+    tag = rel["tag_name"]
+    lic = (repo_info.get("license") or {}).get("spdx_id") or "none published"
     requests.patch(f"{base}/internal/store/titles/{tid[:-3]}000", headers={"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]},
                    json={"changelog": (rel.get("body") or "").strip(), "category": category,
-                         "released_at": stamp(repo_info["created_at"]), "revised_at": stamp(rel["published_at"])})
+                         "released_at": stamp(repo_info["created_at"]), "revised_at": stamp(rel["published_at"]),
+                         "distribution": {"source": rel["html_url"],
+                                          "permission": f"{lic}, from {slug} {tag}, OpenPak testing only"}})
 
 
 def github_add(slug, tag, base, category="tool", binary=None, only=False):
     rel, repo_info, tid, binary = github_build(slug, tag, 0, {"emulator": "emu"}.get(category, category), binary, only)
     upload(base, tid)
     publish(base, tid)
-    github_meta(base, tid, rel, repo_info, category)
+    github_meta(base, tid, slug, rel, repo_info, category)
     os.remove(os.path.join(OUT, f"{tid}.nsp"))
     path = os.path.join(OUT, "github.json")
     known = json.load(open(path)) if os.path.exists(path) else {}
@@ -320,11 +326,13 @@ def github_add(slug, tag, base, category="tool", binary=None, only=False):
 
 
 def github_sync(base):
-    """Ship every recorded GitHub title's newer latest release as an update."""
+    """Ship every recorded GitHub title's newer latest release as an update. Returns the
+    number of titles shipped, so the sync summary can count them."""
     import requests
     path = os.path.join(OUT, "github.json")
     known = json.load(open(path)) if os.path.exists(path) else {}
     h = {"X-Internal-Key": os.environ["NX_INTERNAL_KEY"]}
+    shipped = 0
     for entry, rec in known.items():
         if rec.get("pin"):  # e.g. Daybreak: tied to the Atmosphère the console runs
             continue
@@ -341,13 +349,15 @@ def github_sync(base):
                 continue
             rel, repo_info, pid, _ = github_build(slug, latest, version, {"emulator": "emu"}.get(rec["category"], rec["category"]), rec.get("binary"), rec.get("only", False))
             upload(base, pid)
-            github_meta(base, pid, rel, repo_info, rec["category"])
+            github_meta(base, pid, slug, rel, repo_info, rec["category"])
             os.remove(os.path.join(OUT, f"{pid}.nsp"))
             rec["tag"] = latest
             json.dump(known, open(path, "w"), indent=1)
+            shipped += 1
             print(f"update: {slug} -> {latest} ({version})", flush=True)
         except (SystemExit, Exception) as e:
             print(f"  FAILED {slug}: {str(e)[:200]}", flush=True)
+    return shipped
 
 
 # ---------- upstream: 4TU packages updated straight from their GitHub releases ----------
@@ -374,9 +384,10 @@ def sources(repo):
 
 def upstream_update(base, p, repo, t, slug, seen, broken):
     """One 4TU package against its upstream's latest release: "same" when there is nothing new,
-    (patch id, release) once a newer release has shipped as an update, None to fall back to 4TU
-    (no release, nothing usable in it). seen[name] is the last upstream tag the store has; the
-    first look counts a release no newer than 4TU's package (+2 days) as already in the store."""
+    (patch id, release, permission) once a newer release has shipped as an update, None to
+    fall back to 4TU (no release, nothing usable in it). seen[name] is the last upstream tag
+    the store has; the first look counts a release no newer than 4TU's package (+2 days) as
+    already in the store."""
     name = p["name"]
     rel = gh_api(f"repos/{slug}/releases/latest")
     tag = rel["tag_name"]
@@ -411,14 +422,14 @@ def upstream_update(base, p, repo, t, slug, seen, broken):
         for f in (zpath, base_zip):
             if f and os.path.exists(f):
                 os.remove(f)
+    permission = f"{p.get('license') or 'unknown'}, from {slug} {tag}, OpenPak testing only"
     meta = json.load(open(os.path.join(OUT, f"{pid}.json")))
-    meta["title"]["distribution"] = {"source": rel["html_url"],
-                                     "permission": f"{p.get('license') or 'unknown'}, from {slug} {tag}, OpenPak testing only"}
+    meta["title"]["distribution"] = {"source": rel["html_url"], "permission": permission}
     json.dump(meta, open(os.path.join(OUT, f"{pid}.json"), "w"), indent=1)
     upload(base, pid)
     os.remove(os.path.join(OUT, f"{pid}.nsp"))
     seen[name] = seen_as
-    return pid, rel
+    return pid, rel, permission
 
 
 # ---------- discover: homebrew on GitHub that neither 4TU nor the store has ----------
@@ -944,7 +955,7 @@ def sync(base, repo):
                 continue
             if r is not None:
                 changed.append(p)
-                upstream.append((tid, r[1]))
+                upstream.append((tid, r[1], r[2]))
                 continue
         if broken.get(name) == p.get("updated"):
             continue
@@ -979,12 +990,13 @@ def sync(base, repo):
     json.dump(broken, open(broken_path, "w"), indent=1)
     if changed:
         enrich(base, changed)
-    for tid, rel in upstream:  # after enrich: the release's own notes and date, not 4TU's
+    for tid, rel, permission in upstream:  # after enrich: the release's own notes, date and source, not 4TU's
         requests.patch(f"{base}/internal/store/titles/{tid}", headers=h, json={
             "changelog": (rel.get("body") or "").strip(),
-            "revised_at": int(datetime.datetime.fromisoformat(rel["published_at"].replace("Z", "+00:00")).timestamp())})
-    github_sync(base)
-    print(f"sync: {len(changed)} changed ({len(upstream)} from upstream), {len(failed)} failed", flush=True)
+            "revised_at": int(datetime.datetime.fromisoformat(rel["published_at"].replace("Z", "+00:00")).timestamp()),
+            "distribution": {"source": rel["html_url"], "permission": permission}})
+    gships = github_sync(base)
+    print(f"sync: {len(changed) + gships} changed ({len(upstream) + gships} from upstream), {len(failed)} failed", flush=True)
     for n, e in failed:
         print(f"  {n}: {e}", flush=True)
 
@@ -1022,6 +1034,39 @@ def since(date, base, repo):
         print(f"  {n}: {e}", flush=True)
 
 
+class _StampedStream:
+    """Wrap a text stream so every completed line gains a UTC timestamp prefix. The hourly
+    sync appends to one ever-growing log; without stamps, runs are only separable via the
+    systemd journal. Partial lines are held until their newline arrives."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._pending = ""
+
+    def write(self, data):
+        if not isinstance(data, str):
+            return self._stream.write(data)
+        text = self._pending + data
+        lines = text.split("\n")
+        self._pending = lines.pop()
+        if not lines or (len(lines) == 1 and lines[0] == "" and text == ""):
+            return len(data)
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for line in lines:
+            self._stream.write(f"{stamp} {line}\n")
+        return len(data)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 3 or sys.argv[1] not in ("build", "upload", "since", "enrich", "openpak", "openpak-update", "openpak-nsp", "openpak-nsp-file", "add", "loaderfix", "rebuild", "sync", "github",
                                                      "sources", "discover", "adopt", "github-sync"):
@@ -1040,6 +1085,8 @@ if __name__ == "__main__":
         a = sys.argv[2:-1]
         github_add(a[0], a[1], sys.argv[-1].rstrip("/"), a[2] if len(a) > 2 else "tool")
     elif sys.argv[1] == "sync":
+        sys.stdout = _StampedStream(sys.stdout)
+        sys.stderr = _StampedStream(sys.stderr)
         sync(sys.argv[2].rstrip("/"), load_repo())
     elif sys.argv[1] == "rebuild":
         rebuild(sys.argv[-1].rstrip("/"), load_repo(), set(sys.argv[2:-1]))
